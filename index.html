@@ -7,7 +7,6 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-
   <div class="container">
     <h1 class="centered-title">Cardvanta 💳</h1>
     <p class="app-description">Maximize your card rewards.</p>
@@ -19,7 +18,7 @@
         type="text"
         placeholder="Enter first 6-8 digits"
         inputmode="numeric"
-        maxlength="8"
+        maxlength="9"
       />
       <button id="analyzeBtn">Analyze Card</button>
       <p id="message"></p>
@@ -28,11 +27,26 @@
     <div id="output"></div>
 
     <div id="selection-area" style="display: none;">
-      <div id="bank-selection-group">
-        <p><strong id="bank-label">Step 2:</strong> Select your bank:</p>
-        <select id="bankSelect">
-          <option value="">-- Select Your Bank --</option>
-        </select>
+      <div id="step2-group">
+        <p><strong id="step2-label">Step 2:</strong> Provide card details:</p>
+        
+        <div class="step2-flex">
+          <div id="manual-type-wrapper" style="display: none;">
+            <label for="typeSelect">Card Type</label>
+            <select id="typeSelect">
+              <option value="" selected disabled>-- Select --</option>
+              <option value="credit">Credit</option>
+              <option value="debit">Debit</option>
+            </select>
+          </div>
+
+          <div id="bank-selection-group">
+            <label for="bankSelect">Your Bank</label>
+            <select id="bankSelect">
+              <option value="">-- Select --</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <div id="card-selection-sub" style="display: none;">
