@@ -220,7 +220,6 @@ const binInput = document.getElementById("binInput");
         let validData = null;
         let isManualMode = false;
         const endpoints = getEndpoints(bin);
-
         for (let i = 0; i < endpoints.length; i++) {
             try {
                 const target = endpoints[i];
@@ -409,3 +408,4 @@ const binInput = document.getElementById("binInput");
     analyzeBtn.addEventListener("click", analyze);
     binInput.addEventListener("keypress", (e) => { if (e.key === "Enter") analyze(); });
 });	
+
