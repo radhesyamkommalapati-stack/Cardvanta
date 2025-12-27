@@ -141,7 +141,6 @@ document.addEventListener("DOMContentLoaded", () => {
 { issuer:"Amazon", network:"Visa", name:"Amazon Rewards Visa Signature Card", best:["🛍 Amazon purchases","💵 Cashback"] }
 ];
 
-
   /* ================= BANK NAME MAP ================= */
   const bankNameMap = {
     "Royal Bank Of Canada": "RBC",
@@ -384,4 +383,5 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 });
+
 
