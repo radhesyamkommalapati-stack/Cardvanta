@@ -167,130 +167,142 @@ document.addEventListener("DOMContentLoaded", () => {
     "Amazon": "Amazon"
   };
 
-const binInput = document.getElementById("binInput");
-    const analyzeBtn = document.getElementById("analyzeBtn");
-    const message = document.getElementById("message");
-    const output = document.getElementById("output");
-    const selectionArea = document.getElementById("selection-area");
-    const cardSelect = document.getElementById("cardSelect");
-    const finalResults = document.getElementById("final-results");
+/* ================= UI ELEMENTS ================= */
+  const binInput = document.getElementById("binInput");
+  const analyzeBtn = document.getElementById("analyzeBtn");
+  const message = document.getElementById("message");
+  const output = document.getElementById("output");
+  const selectionArea = document.getElementById("selection-area");
+  const cardSelect = document.getElementById("cardSelect");
+  const finalResults = document.getElementById("final-results");
 
-    analyzeBtn.addEventListener("click", analyze);
+  analyzeBtn.addEventListener("click", analyze);
 
-    // Local Fallback Logic
-    function getLocalCardData(bin) {
-        const firstDigit = bin[0];
-        const firstTwo = bin.substring(0, 2);
-        let network = "Unknown";
-        if (firstDigit === "4") network = "Visa";
-        else if (firstTwo >= "51" && firstTwo <= "55") network = "Mastercard";
-        else if (firstTwo === "34" || firstTwo === "37") network = "Amex";
-        return { network, type: "Credit" };
+  /* ================= LOCAL FALLBACK LOGIC ================= */
+  function getLocalCardData(bin) {
+    const firstDigit = bin[0];
+    const firstTwo = bin.substring(0, 2);
+    let network = "Unknown";
+    if (firstDigit === "4") network = "visa";
+    else if (firstTwo >= "51" && firstTwo <= "55") network = "mastercard";
+    else if (firstTwo === "34" || firstTwo === "37") network = "amex";
+    return { scheme: network, type: "credit", bank: { name: "" } };
+  }
+
+  /* ================= CORE ANALYZE FUNCTION ================= */
+  async function analyze() {
+    const bin = binInput.value.trim();
+
+    // Reset UI
+    message.textContent = "Verifying..."; 
+    output.innerHTML = "";
+    finalResults.innerHTML = "";
+    selectionArea.style.display = "none";
+    cardSelect.innerHTML = `<option value="">-- Choose your card --</option>`;
+
+    if (!/^\d{6,8}$/.test(bin)) {
+      message.textContent = "Please enter 6-8 digits.";
+      return;
     }
 
-    async function analyze() {
-        const bin = binInput.value.trim();
-        
-        // Reset UI
-        message.textContent = "Verifying..."; // Show status
-        output.innerHTML = "";
-        finalResults.innerHTML = "";
-        selectionArea.style.display = "none";
-        cardSelect.innerHTML = `<option value="">-- Choose your card --</option>`;
+    try {
+      /**
+       * FIX: Instead of calling a local Node.js route (/bin/), 
+       * we use a public API via a CORS proxy.
+       */
+      const apiUrl = `https://lookup.binlist.net/${bin}`;
+      const proxiedUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
+      
+      const res = await fetch(proxiedUrl);
+      
+      let data;
+      let isFallback = false;
 
-        if (!/^\d{6,8}$/.test(bin)) {
-            message.textContent = "Please enter 6-8 digits.";
-            return;
+      if (!res.ok) {
+        // If API fails (e.g., 429 rate limit), use local detection logic
+        data = getLocalCardData(bin);
+        isFallback = true;
+      } else {
+        data = await res.json();
+      }
+
+      // Clear "Verifying..." message
+      message.textContent = isFallback ? "Using local identification (Limit reached)." : "";
+
+      // Match the bank name from API to your internal map
+      const rawBankName = data.bank?.name || "";
+      let mappedIssuer = "";
+      for (const [fullName, shortName] of Object.entries(bankNameMap)) {
+        if (rawBankName.toLowerCase().includes(fullName.toLowerCase())) {
+          mappedIssuer = shortName;
+          break;
         }
+      }
 
-        try {
-            const res = await fetch(`/bin/${bin}`);
-            let data;
-            let isFallback = false;
+      const network = (data.scheme || data.network || "").toLowerCase();
+      const type = (data.type || "").toLowerCase();
+      const displayName = mappedIssuer ? `${mappedIssuer} ${network}` : `${network}`;
+      
+      output.innerHTML = `
+        <div class="verified-box">
+          <div class="verified-text">✅ ${isFallback ? 'Network Identified' : 'Verified'}</div>
+          <div class="card-summary">${displayName.toUpperCase()} ${type.toUpperCase()}</div>
+        </div>
+      `;
 
-            if (res.status === 429 || !res.ok) {
-                data = getLocalCardData(bin);
-                isFallback = true;
-            } else {
-                data = await res.json();
-            }
-
-            // BUG FIX: Clear "Verifying..." as soon as data is received
-            message.textContent = isFallback ? "Using local identification (Limit reached)." : "";
-
-            const rawBankName = data.bank?.name || "";
-            let mappedIssuer = "";
-            for (const [fullName, shortName] of Object.entries(bankNameMap)) {
-                if (rawBankName.toLowerCase().includes(fullName.toLowerCase())) {
-                    mappedIssuer = shortName;
-                    break;
-                }
-            }
-
-            const network = (data.scheme || data.network || "").toLowerCase();
-            const type = (data.type || "").toLowerCase();
-            const displayName = mappedIssuer ? `${mappedIssuer} ${network}` : `${network}`;
-            
-            output.innerHTML = `
-                <div class="verified-box">
-                    <div class="verified-text">✅ ${isFallback ? 'Network Identified' : 'Verified'}</div>
-                    <div class="card-summary">${displayName.toUpperCase()} ${type.toUpperCase()}</div>
-                </div>
-            `;
-
-            const matches = cardDB.filter(c => {
-                const networkMatch = c.network.toLowerCase().includes(network);
-                if (mappedIssuer) {
-                    return c.issuer.toLowerCase() === mappedIssuer.toLowerCase() && networkMatch;
-                }
-                return networkMatch;
-            });
-
-            if (matches.length > 0) {
-                matches.forEach(card => {
-                    const opt = document.createElement("option");
-                    opt.value = card.name;
-                    opt.textContent = `${card.issuer} - ${card.name}`;
-                    cardSelect.appendChild(opt);
-                });
-                selectionArea.style.display = "block";
-            } else {
-                message.textContent = "We couldn't match this card to our rewards database.";
-            }
-
-        } catch (err) {
-            message.textContent = "An error occurred.";
+      // Filter database for matching cards
+      const matches = cardDB.filter(c => {
+        const networkMatch = c.network.toLowerCase().includes(network);
+        if (mappedIssuer) {
+          return c.issuer.toLowerCase() === mappedIssuer.toLowerCase() && networkMatch;
         }
-    }
+        return networkMatch;
+      });
 
-    cardSelect.addEventListener("change", e => {
-        const selectedName = e.target.value;
-        if (!selectedName) return;
-        const card = cardDB.find(c => c.name === selectedName);
-        if (!card) return;
-
-        // Hide Step 2
-        selectionArea.style.display = "none";
-        message.textContent = ""; // Ensure status is gone
-
-        // Show Final Results with Blue Border and Two Options
-        finalResults.innerHTML = `
-            <div class="results-box">
-                <h3>${card.name}</h3>
-                <label>Best Uses</label>
-                <ul>${card.best.map(b => `<li>${b}</li>`).join("")}</ul>
-                
-                <div class="action-group">
-                    <button id="changeTypeBtn" class="secondary-btn">Change Card Type</button>
-                    <button onclick="location.reload()" class="primary-btn">New Search</button>
-                </div>
-            </div>
-        `;
-
-        // Event listener for "Change Card Type" to bring back the dropdown
-        document.getElementById("changeTypeBtn").addEventListener("click", () => {
-            finalResults.innerHTML = "";
-            selectionArea.style.display = "block";
+      if (matches.length > 0) {
+        matches.forEach(card => {
+          const opt = document.createElement("option");
+          opt.value = card.name;
+          opt.textContent = `${card.issuer} - ${card.name}`;
+          cardSelect.appendChild(opt);
         });
+        selectionArea.style.display = "block";
+      } else {
+        message.textContent = "We couldn't match this card to our rewards database.";
+      }
+
+    } catch (err) {
+      console.error("Fetch error:", err);
+      message.textContent = "An error occurred connecting to the service.";
+    }
+  }
+
+  /* ================= FINAL CARD SELECTION ================= */
+  cardSelect.addEventListener("change", e => {
+    const selectedName = e.target.value;
+    if (!selectedName) return;
+    const card = cardDB.find(c => c.name === selectedName);
+    if (!card) return;
+
+    selectionArea.style.display = "none";
+    message.textContent = "";
+
+    finalResults.innerHTML = `
+      <div class="results-box">
+        <h3>${card.name}</h3>
+        <label>Best Uses</label>
+        <ul>${card.best.map(b => `<li>${b}</li>`).join("")}</ul>
+        
+        <div class="action-group">
+          <button id="changeTypeBtn" class="secondary-btn">Change Card Type</button>
+          <button onclick="location.reload()" class="primary-btn">New Search</button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById("changeTypeBtn").addEventListener("click", () => {
+      finalResults.innerHTML = "";
+      selectionArea.style.display = "block";
     });
+  });
 });
