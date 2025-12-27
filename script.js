@@ -168,141 +168,224 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
 /* ================= UI ELEMENTS ================= */
-  const binInput = document.getElementById("binInput");
-  const analyzeBtn = document.getElementById("analyzeBtn");
-  const message = document.getElementById("message");
-  const output = document.getElementById("output");
-  const selectionArea = document.getElementById("selection-area");
-  const cardSelect = document.getElementById("cardSelect");
-  const finalResults = document.getElementById("final-results");
+    const binInput = document.getElementById("binInput");
+    const analyzeBtn = document.getElementById("analyzeBtn");
+    const message = document.getElementById("message");
+    const output = document.getElementById("output");
+    const selectionArea = document.getElementById("selection-area");
+    const bankSelect = document.getElementById("bankSelect");
+    const cardSelectionSub = document.getElementById("card-selection-sub");
+    const cardSelect = document.getElementById("cardSelect");
+    const finalResults = document.getElementById("final-results");
 
-  analyzeBtn.addEventListener("click", analyze);
+    /* ================= STATE ================= */
+    let currentNetwork = "";
+    let currentMappedIssuer = "";
 
-  /* ================= LOCAL FALLBACK LOGIC ================= */
-  function getLocalCardData(bin) {
-    const firstDigit = bin[0];
-    const firstTwo = bin.substring(0, 2);
-    let network = "Unknown";
-    if (firstDigit === "4") network = "visa";
-    else if (firstTwo >= "51" && firstTwo <= "55") network = "mastercard";
-    else if (firstTwo === "34" || firstTwo === "37") network = "amex";
-    return { scheme: network, type: "credit", bank: { name: "" } };
-  }
+    /* ================= WATERFALL API CONFIG ================= */
+    const getEndpoints = (bin) => [
+        { url: `https://lookup.binlist.net/${bin}`, proxy: true },
+        { url: `https://data.handyapi.com/bin/${bin}`, proxy: true },
+        { url: `https://api.binlist.net/${bin}`, proxy: true },
+        { url: `https://binsapi.vercel.app/api/bin?bin=${bin}`, proxy: false },
+        { url: `https://api.bincodes.com/bin/json/5b21e843817f394c5025754f7623d387/${bin}/`, proxy: true },
+        { url: `https://api.freebinchecker.com/bin/${bin}`, proxy: true }
+    ];
 
-  /* ================= CORE ANALYZE FUNCTION ================= */
-  async function analyze() {
-    const bin = binInput.value.trim();
+    /* ================= EVENT LISTENERS ================= */
+    analyzeBtn.addEventListener("click", analyze);
+    binInput.addEventListener("keypress", (e) => { if (e.key === "Enter") analyze(); });
 
-    // Reset UI
-    message.textContent = "Verifying..."; 
-    output.innerHTML = "";
-    finalResults.innerHTML = "";
-    selectionArea.style.display = "none";
-    cardSelect.innerHTML = `<option value="">-- Choose your card --</option>`;
+    /* ================= CORE LOGIC ================= */
 
-    if (!/^\d{6,8}$/.test(bin)) {
-      message.textContent = "Please enter 6-8 digits.";
-      return;
-    }
-
-    try {
-      /**
-       * FIX: Instead of calling a local Node.js route (/bin/), 
-       * we use a public API via a CORS proxy.
-       */
-      const apiUrl = `https://lookup.binlist.net/${bin}`;
-      const proxiedUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
-      
-      const res = await fetch(proxiedUrl);
-      
-      let data;
-      let isFallback = false;
-
-      if (!res.ok) {
-        // If API fails (e.g., 429 rate limit), use local detection logic
-        data = getLocalCardData(bin);
-        isFallback = true;
-      } else {
-        data = await res.json();
-      }
-
-      // Clear "Verifying..." message
-      message.textContent = isFallback ? "Using local identification (Limit reached)." : "";
-
-      // Match the bank name from API to your internal map
-      const rawBankName = data.bank?.name || "";
-      let mappedIssuer = "";
-      for (const [fullName, shortName] of Object.entries(bankNameMap)) {
-        if (rawBankName.toLowerCase().includes(fullName.toLowerCase())) {
-          mappedIssuer = shortName;
-          break;
-        }
-      }
-
-      const network = (data.scheme || data.network || "").toLowerCase();
-      const type = (data.type || "").toLowerCase();
-      const displayName = mappedIssuer ? `${mappedIssuer} ${network}` : `${network}`;
-      
-      output.innerHTML = `
-        <div class="verified-box">
-          <div class="verified-text">✅ ${isFallback ? 'Network Identified' : 'Verified'}</div>
-          <div class="card-summary">${displayName.toUpperCase()} ${type.toUpperCase()}</div>
-        </div>
-      `;
-
-      // Filter database for matching cards
-      const matches = cardDB.filter(c => {
-        const networkMatch = c.network.toLowerCase().includes(network);
-        if (mappedIssuer) {
-          return c.issuer.toLowerCase() === mappedIssuer.toLowerCase() && networkMatch;
-        }
-        return networkMatch;
-      });
-
-      if (matches.length > 0) {
-        matches.forEach(card => {
-          const opt = document.createElement("option");
-          opt.value = card.name;
-          opt.textContent = `${card.issuer} - ${card.name}`;
-          cardSelect.appendChild(opt);
-        });
-        selectionArea.style.display = "block";
-      } else {
-        message.textContent = "We couldn't match this card to our rewards database.";
-      }
-
-    } catch (err) {
-      console.error("Fetch error:", err);
-      message.textContent = "An error occurred connecting to the service.";
-    }
-  }
-
-  /* ================= FINAL CARD SELECTION ================= */
-  cardSelect.addEventListener("change", e => {
-    const selectedName = e.target.value;
-    if (!selectedName) return;
-    const card = cardDB.find(c => c.name === selectedName);
-    if (!card) return;
-
-    selectionArea.style.display = "none";
-    message.textContent = "";
-
-    finalResults.innerHTML = `
-      <div class="results-box">
-        <h3>${card.name}</h3>
-        <label>Best Uses</label>
-        <ul>${card.best.map(b => `<li>${b}</li>`).join("")}</ul>
+    async function analyze() {
+        const bin = binInput.value.replace(/\s/g, '').trim();
         
-        <div class="action-group">
-          <button id="changeTypeBtn" class="secondary-btn">Change Card Type</button>
-          <button onclick="location.reload()" class="primary-btn">New Search</button>
-        </div>
-      </div>
-    `;
+        // UI Reset
+        message.innerHTML = `Checking secure databases...`;
+        output.innerHTML = "";
+        finalResults.innerHTML = "";
+        selectionArea.style.display = "none";
 
-    document.getElementById("changeTypeBtn").addEventListener("click", () => {
-      finalResults.innerHTML = "";
-      selectionArea.style.display = "block";
+        if (!/^\d{6,8}$/.test(bin)) {
+            message.textContent = "Please enter 6-8 digits.";
+            return;
+        }
+
+        const endpoints = getEndpoints(bin);
+        let validData = null;
+
+        // WATERFALL ATTEMPT
+        for (let i = 0; i < endpoints.length; i++) {
+            try {
+                const target = endpoints[i];
+                const url = target.proxy 
+                    ? `https://corsproxy.io/?${encodeURIComponent(target.url)}` 
+                    : target.url;
+
+                const res = await fetch(url);
+                
+                if (res.ok) {
+                    const raw = await res.json();
+                    const normalized = normalizeResponse(raw);
+                    
+                    if (normalized.scheme) {
+                        validData = normalized;
+                        message.textContent = `Verified via Global Database #${i + 1}`;
+                        break; 
+                    }
+                }
+            } catch (err) {
+                console.warn(`Service ${i + 1} unavailable.`);
+                continue;
+            }
+        }
+
+        // FAIL-SAFE: If all 6 APIs fail, fall back to smart local detection
+        if (!validData) {
+            message.textContent = "Live services busy. Identifying via local patterns.";
+            validData = getLocalCardData(bin);
+        }
+
+        processCardData(validData);
+    }
+
+    function normalizeResponse(data) {
+        // Normalizes variations across different API providers
+        return {
+            scheme: (data.scheme || data.brand || data.network || data.card_brand || "").toLowerCase(),
+            type: (data.type || data.card_type || "credit").toLowerCase(),
+            bankName: data.bank?.name || data.issuer || data.bank_name || ""
+        };
+    }
+
+    function processCardData(data) {
+        currentNetwork = data.scheme || "unknown";
+        const rawBankName = data.bankName || "";
+        currentMappedIssuer = "";
+
+        for (const [fullName, shortName] of Object.entries(bankNameMap)) {
+            if (rawBankName.toLowerCase().includes(fullName.toLowerCase())) {
+                currentMappedIssuer = shortName;
+                break;
+            }
+        }
+
+        const displayName = currentMappedIssuer ? `${currentMappedIssuer} ${currentNetwork}` : `${currentNetwork}`;
+        
+        output.innerHTML = `
+            <div class="verified-box">
+                <div class="verified-text">✅ Identification Successful</div>
+                <div class="card-summary">${displayName.toUpperCase()} ${data.type.toUpperCase()}</div>
+            </div>
+        `;
+
+        renderSelection(currentNetwork);
+    }
+
+    function renderSelection(network) {
+        const networkMatches = cardDB.filter(c => c.network.toLowerCase().includes(network));
+
+        if (networkMatches.length > 0) {
+            selectionArea.style.display = "block";
+            if (currentMappedIssuer) {
+                // If bank is known, go straight to card selection
+                document.getElementById("bank-selection-group").style.display = "none";
+                showBankCards(currentMappedIssuer, networkMatches);
+                cardSelectionSub.style.display = "block";
+            } else {
+                // If bank unknown, show the bank dropdown
+                document.getElementById("bank-selection-group").style.display = "block";
+                bankSelect.innerHTML = `<option value="">-- Select Your Bank --</option>`;
+                const uniqueBanks = [...new Set(networkMatches.map(c => c.issuer))].sort();
+                uniqueBanks.forEach(bank => {
+                    const opt = document.createElement("option");
+                    opt.value = bank;
+                    opt.textContent = bank;
+                    bankSelect.appendChild(opt);
+                });
+            }
+        } else {
+            message.textContent = "Network identified, but no matching rewards in database.";
+        }
+    }
+
+    /* ================= SMART LOCAL FALLBACK ================= */
+
+    function getLocalCardData(bin) {
+        const first = bin[0];
+        const firstTwo = parseInt(bin.substring(0, 2));
+        const firstFour = parseInt(bin.substring(0, 4));
+        let network = "unknown";
+
+        // Visa
+        if (first === "4") {
+            network = "visa";
+        } 
+        // Mastercard (Standard range + New 2-series range)
+        else if ((firstTwo >= 51 && firstTwo <= 55) || (firstFour >= 2221 && firstFour <= 2720)) {
+            network = "mastercard";
+        }
+        // Amex
+        else if (firstTwo === 34 || firstTwo === 37) {
+            network = "amex";
+        }
+        // Discover
+        else if (firstFour === 6011 || firstTwo === 65 || (firstFour >= 644 && firstFour <= 649)) {
+            network = "discover";
+        }
+
+        return { scheme: network, type: "credit", bankName: "" };
+    }
+
+    /* ================= UI HELPERS ================= */
+
+    function showBankCards(selectedBank, filteredList) {
+        cardSelect.innerHTML = `<option value="">-- Select Your Card --</option>`;
+        const specificCards = filteredList.filter(c => c.issuer === selectedBank);
+        specificCards.forEach(card => {
+            const opt = document.createElement("option");
+            opt.value = card.name;
+            opt.textContent = card.name;
+            cardSelect.appendChild(opt);
+        });
+    }
+
+    /* ================= SELECTION LISTENERS ================= */
+
+    bankSelect.addEventListener("change", (e) => {
+        const selectedBank = e.target.value;
+        if (!selectedBank) {
+            cardSelectionSub.style.display = "none";
+            return;
+        }
+        const networkMatches = cardDB.filter(c => c.network.toLowerCase().includes(currentNetwork));
+        showBankCards(selectedBank, networkMatches);
+        cardSelectionSub.style.display = "block";
     });
-  });
+
+    cardSelect.addEventListener("change", e => {
+        const selectedName = e.target.value;
+        if (!selectedName) return;
+        const card = cardDB.find(c => c.name === selectedName);
+        if (!card) return;
+
+        selectionArea.style.display = "none";
+        finalResults.innerHTML = `
+            <div class="results-box">
+                <h3>${card.name}</h3>
+                <label>Recommended Uses</label>
+                <ul>${card.best.map(b => `<li>${b}</li>`).join("")}</ul>
+                <div class="action-group">
+                    <button id="changeTypeBtn" class="secondary-btn">Edit Choice</button>
+                    <button onclick="location.reload()" class="primary-btn">New Search</button>
+                </div>
+            </div>
+        `;
+
+        document.getElementById("changeTypeBtn").addEventListener("click", () => {
+            finalResults.innerHTML = "";
+            selectionArea.style.display = "block";
+        });
+    });
 });
