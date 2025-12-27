@@ -177,6 +177,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const cardSelectionSub = document.getElementById("card-selection-sub");
     const cardSelect = document.getElementById("cardSelect");
     const finalResults = document.getElementById("final-results");
+    
+    const bankLabel = document.getElementById("bank-label");
+    const cardLabel = document.getElementById("card-label");
 
     /* ================= STATE ================= */
     let currentNetwork = "";
@@ -199,23 +202,25 @@ document.addEventListener("DOMContentLoaded", () => {
     /* ================= CORE LOGIC ================= */
 
     async function analyze() {
-        const bin = binInput.value.replace(/\s/g, '').trim();
+        // Clean input of any spaces or dashes
+        const bin = binInput.value.replace(/[\s-]/g, '').trim();
         
         // UI Reset
         message.innerHTML = `Checking secure databases...`;
         output.innerHTML = "";
         finalResults.innerHTML = "";
         selectionArea.style.display = "none";
+        cardSelectionSub.style.display = "none";
 
         if (!/^\d{6,8}$/.test(bin)) {
             message.textContent = "Please enter 6-8 digits.";
             return;
         }
 
-        const endpoints = getEndpoints(bin);
         let validData = null;
+        const endpoints = getEndpoints(bin);
 
-        // WATERFALL ATTEMPT
+        // API Waterfall Loop
         for (let i = 0; i < endpoints.length; i++) {
             try {
                 const target = endpoints[i];
@@ -224,24 +229,22 @@ document.addEventListener("DOMContentLoaded", () => {
                     : target.url;
 
                 const res = await fetch(url);
-                
                 if (res.ok) {
                     const raw = await res.json();
                     const normalized = normalizeResponse(raw);
-                    
                     if (normalized.scheme) {
                         validData = normalized;
-                        message.textContent = `Verified via Global Database #${i + 1}`;
+                        message.textContent = `Verified via Service #${i + 1}`;
                         break; 
                     }
                 }
             } catch (err) {
-                console.warn(`Service ${i + 1} unavailable.`);
+                console.warn(`Service ${i + 1} skipped.`);
                 continue;
             }
         }
 
-        // FAIL-SAFE: If all 6 APIs fail, fall back to smart local detection
+        // FAIL-SAFE: If all APIs fail, fall back to smart local detection
         if (!validData) {
             message.textContent = "Live services busy. Identifying via local patterns.";
             validData = getLocalCardData(bin);
@@ -251,7 +254,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function normalizeResponse(data) {
-        // Normalizes variations across different API providers
         return {
             scheme: (data.scheme || data.brand || data.network || data.card_brand || "").toLowerCase(),
             type: (data.type || data.card_type || "credit").toLowerCase(),
@@ -288,14 +290,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (networkMatches.length > 0) {
             selectionArea.style.display = "block";
+
             if (currentMappedIssuer) {
-                // If bank is known, go straight to card selection
+                // Bank DETECTED: Step 2 becomes Card Selection
                 document.getElementById("bank-selection-group").style.display = "none";
+                cardLabel.textContent = "Step 2:"; 
                 showBankCards(currentMappedIssuer, networkMatches);
                 cardSelectionSub.style.display = "block";
             } else {
-                // If bank unknown, show the bank dropdown
+                // Bank NOT Detected: Manual Step 2 and Step 3
                 document.getElementById("bank-selection-group").style.display = "block";
+                bankLabel.textContent = "Step 2:";
+                cardLabel.textContent = "Step 3:";
+                
                 bankSelect.innerHTML = `<option value="">-- Select Your Bank --</option>`;
                 const uniqueBanks = [...new Set(networkMatches.map(c => c.issuer))].sort();
                 uniqueBanks.forEach(bank => {
@@ -306,7 +313,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 });
             }
         } else {
-            message.textContent = "Network identified, but no matching rewards in database.";
+            message.textContent = "Network recognized, but no matching rewards in database.";
         }
     }
 
@@ -318,22 +325,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const firstFour = parseInt(bin.substring(0, 4));
         let network = "unknown";
 
-        // Visa
-        if (first === "4") {
-            network = "visa";
-        } 
-        // Mastercard (Standard range + New 2-series range)
-        else if ((firstTwo >= 51 && firstTwo <= 55) || (firstFour >= 2221 && firstFour <= 2720)) {
-            network = "mastercard";
-        }
-        // Amex
-        else if (firstTwo === 34 || firstTwo === 37) {
-            network = "amex";
-        }
-        // Discover
-        else if (firstFour === 6011 || firstTwo === 65 || (firstFour >= 644 && firstFour <= 649)) {
-            network = "discover";
-        }
+        if (first === "4") network = "visa";
+        else if ((firstTwo >= 51 && firstTwo <= 55) || (firstFour >= 2221 && firstFour <= 2720)) network = "mastercard";
+        else if (firstTwo === 34 || firstTwo === 37) network = "amex";
+        else if (firstFour === 6011 || firstTwo === 65 || (firstFour >= 644 && firstFour <= 649)) network = "discover";
 
         return { scheme: network, type: "credit", bankName: "" };
     }
@@ -374,10 +369,10 @@ document.addEventListener("DOMContentLoaded", () => {
         finalResults.innerHTML = `
             <div class="results-box">
                 <h3>${card.name}</h3>
-                <label>Recommended Uses</label>
+                <label>Best Uses</label>
                 <ul>${card.best.map(b => `<li>${b}</li>`).join("")}</ul>
                 <div class="action-group">
-                    <button id="changeTypeBtn" class="secondary-btn">Edit Choice</button>
+                    <button id="changeTypeBtn" class="secondary-btn">Edit Card</button>
                     <button onclick="location.reload()" class="primary-btn">New Search</button>
                 </div>
             </div>
@@ -389,3 +384,4 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 });
+
