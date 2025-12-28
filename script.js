@@ -512,246 +512,264 @@ const bankNameMap = {
     };
 
 /* --- 2. SELECTORS --- */
-    const binInput = document.getElementById("binInput");
-    const analyzeBtn = document.getElementById("analyzeBtn");
-    const message = document.getElementById("message");
-    const output = document.getElementById("output");
-    const selectionArea = document.getElementById("selection-area");
-    const step2Group = document.getElementById("step2-group");
-    const manualTypeWrapper = document.getElementById("manual-type-wrapper");
-    const typeSelect = document.getElementById("typeSelect");
-    const bankSelect = document.getElementById("bankSelect");
-    const categorySelect = document.getElementById("categorySelect");
-    const cardSelectionSub = document.getElementById("card-selection-sub");
-    const cardSelect = document.getElementById("cardSelect");
-    const finalResults = document.getElementById("final-results");
-    const step2Label = document.getElementById("step2-label");
-    const cardLabel = document.getElementById("card-label");
+const binInput = document.getElementById("binInput");
+const analyzeBtn = document.getElementById("analyzeBtn");
+const message = document.getElementById("message");
+const output = document.getElementById("output");
+const selectionArea = document.getElementById("selection-area");
+const step2Group = document.getElementById("step2-group");
+const manualTypeWrapper = document.getElementById("manual-type-wrapper");
+const typeSelect = document.getElementById("typeSelect");
+const bankSelect = document.getElementById("bankSelect");
+const categorySelect = document.getElementById("categorySelect");
+const cardSelectionSub = document.getElementById("card-selection-sub");
+const cardSelect = document.getElementById("cardSelect");
+const finalResults = document.getElementById("final-results");
+const step2Label = document.getElementById("step2-label");
+const cardLabel = document.getElementById("card-label");
 
-    let currentNetwork = "";
-    let currentMappedIssuer = "";
+let currentNetwork = "";
+let currentMappedIssuer = "";
 
-    /* --- 3. API CONFIGURATION --- */
-    const BIN_APIS = (bin) => [
-        { name: "BinSearchLookup", url: `https://binsearchlookup.com/api/v1/${bin}`, proxy: true },
-        { name: "HandyAPI", url: `https://data.handyapi.com/bin/${bin}`, proxy: true },
-        { name: "BinsAPI", url: `https://binsapi.vercel.app/api/bin?bin=${bin}`, proxy: false },
-        { name: "Binlist", url: `https://lookup.binlist.net/${bin}`, proxy: true },
-        { name: "Moocher.io", url: `https://moocher.io/api/bin/${bin}`, proxy: true },
-        { name: "PulsePST", url: `https://pulse.pst.net/api/bin/${bin}`, proxy: true },
-        { name: "BinCheck", url: `https://api.bincheck.io/bin/${bin}`, proxy: true },
-        { name: "APILayer", url: `https://api.apilayer.com/bincheck/${bin}`, headers: { "apikey": "YOUR_KEY" }, proxy: false },
-        { name: "Bincodes", url: `https://api.bincodes.com/bin/json/YOUR_KEY/${bin}/`, proxy: true },
-        { name: "Neutrino", url: `https://neutrinoapi.net/bin-lookup?bin-number=${bin}`, headers: { "User-ID": "YOUR_ID", "API-Key": "YOUR_KEY" }, proxy: false }
-    ];
+/* --- 3. API CONFIGURATION --- */
+const BIN_APIS = (bin) => [
+    { name: "BinSearchLookup", url: `https://binsearchlookup.com/api/v1/${bin}`, proxy: true },
+    { name: "HandyAPI", url: `https://data.handyapi.com/bin/${bin}`, proxy: true },
+    { name: "BinsAPI", url: `https://binsapi.vercel.app/api/bin?bin=${bin}`, proxy: false },
+    { name: "Binlist", url: `https://lookup.binlist.net/${bin}`, proxy: true },
+    { name: "Moocher.io", url: `https://moocher.io/api/bin/${bin}`, proxy: true },
+    { name: "PulsePST", url: `https://pulse.pst.net/api/bin/${bin}`, proxy: true },
+    { name: "BinCheck", url: `https://api.bincheck.io/bin/${bin}`, proxy: true },
+    { name: "APILayer", url: `https://api.apilayer.com/bincheck/${bin}`, headers: { "apikey": "YOUR_KEY" }, proxy: false },
+    { name: "Bincodes", url: `https://api.bincodes.com/bin/json/YOUR_KEY/${bin}/`, proxy: true },
+    { name: "Neutrino", url: `https://neutrinoapi.net/bin-lookup?bin-number=${bin}`, headers: { "User-ID": "YOUR_ID", "API-Key": "YOUR_KEY" }, proxy: false }
+];
 
-    /* --- 4. CORE ANALYZE FUNCTION --- */
-    async function analyze() {
-        const bin = binInput.value.replace(/\s/g, '').trim();
-        resetUI();
+/* --- 4. CORE ANALYZE FUNCTION --- */
+async function analyze() {
+    const bin = binInput.value.replace(/\s/g, '').trim();
+    resetUI();
 
-        if (!/^\d{6,8}$/.test(bin)) {
-            message.textContent = "Please enter 6-8 digits.";
-            return;
-        }
+    if (!/^\d{6,8}$/.test(bin)) {
+        message.textContent = "Please enter 6-8 digits.";
+        return;
+    }
 
-        const localCheck = getLocalCardData(bin);
-        if (localCheck.scheme === "unknown") {
-            showError("❌ Invalid Card", "Unrecognized card. Please verify digits.");
-            return;
-        }
+    const localCheck = getLocalCardData(bin);
+    if (localCheck.scheme === "unknown") {
+        showError("❌ Invalid Card", "Unrecognized card. Please verify digits.");
+        return;
+    }
 
-        let validData = null;
-        let isManualMode = false;
-        
-        message.style.color = "#fbbf24";
-        message.innerHTML = `⏳ Identifying card...`;
+    let validData = null;
+    let isManualMode = false;
+    
+    message.style.color = "#fbbf24";
+    message.innerHTML = `⏳ Identifying card...`;
 
-        console.group(`🔍 BIN Analysis: ${bin}`);
-        const endpoints = BIN_APIS(bin);
+    console.group(`🔍 BIN Analysis: ${bin}`);
+    const endpoints = BIN_APIS(bin);
 
-        for (let i = 0; i < endpoints.length; i++) {
-            const service = endpoints[i];
-            const startTime = performance.now();
-            try {
-                const cb = `&t=${Date.now()}`;
-                const finalUrl = service.url.includes('?') ? service.url + '&cb=' + Date.now() : service.url + '?' + cb.substring(1);
-                const fetchUrl = service.proxy ? `https://corsproxy.io/?${encodeURIComponent(finalUrl)}` : finalUrl;
-                
-                const res = await fetch(fetchUrl, { headers: service.headers || {} });
-                const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+    for (let i = 0; i < endpoints.length; i++) {
+        const service = endpoints[i];
+        const startTime = performance.now();
+        try {
+            const cb = `&t=${Date.now()}`;
+            const finalUrl = service.url.includes('?') ? service.url + '&cb=' + Date.now() : service.url + '?' + cb.substring(1);
+            const fetchUrl = service.proxy ? `https://corsproxy.io/?${encodeURIComponent(finalUrl)}` : finalUrl;
+            
+            const res = await fetch(fetchUrl, { headers: service.headers || {} });
+            const duration = ((performance.now() - startTime) / 1000).toFixed(2);
 
-                if (res.ok) {
-                    const raw = await res.json();
-                    const normalized = normalizeResponse(raw);
-                    if (normalized.scheme && normalized.scheme !== "unknown") {
-                        console.log(`%c✅ #${i+1} ${service.name} SUCCESS (${duration}s)`, "color: #22c55e; font-weight: bold;");
-                        validData = normalized;
-                        break;
-                    }
-                } else {
-                    console.log(`%c❌ #${i+1} ${service.name} (Status ${res.status})`, "color: #94a3b8;");
+            if (res.ok) {
+                const raw = await res.json();
+                const normalized = normalizeResponse(raw);
+                if (normalized.scheme && normalized.scheme !== "unknown") {
+                    console.log(`%c✅ #${i+1} ${service.name} SUCCESS (${duration}s)`, "color: #22c55e; font-weight: bold;");
+                    validData = normalized;
+                    break;
                 }
-            } catch (e) {
-                console.log(`%c❌ #${i+1} ${service.name} (Error)`, "color: #ef4444;");
+            } else {
+                console.log(`%c❌ #${i+1} ${service.name} (Status ${res.status})`, "color: #94a3b8;");
             }
+        } catch (e) {
+            console.log(`%c❌ #${i+1} ${service.name} (Error)`, "color: #ef4444;");
         }
-        console.groupEnd();
+    }
+    console.groupEnd();
 
-        if (!validData) {
-            validData = localCheck;
-            isManualMode = true;
-            message.textContent = ""; 
-        } else {
-            message.style.color = "#22c55e";
-            message.textContent = "Card Verified"; 
-        }
-
-        processCardData(validData, isManualMode);
+    if (!validData) {
+        validData = localCheck;
+        isManualMode = true;
+        message.textContent = ""; 
+    } else {
+        message.style.color = "#22c55e";
+        message.textContent = "Card Verified"; 
     }
 
-    function normalizeResponse(data) {
-        return {
-            scheme: (data.Scheme || data.scheme || data.brand || data.network || "unknown").toLowerCase(),
-            type: (data.Type || data.type || data.card_type || "unknown").toLowerCase(),
-            bankName: (data.Issuer || data.bank?.name || data.issuer || data.bank || data.name || "")
-        };
+    processCardData(validData, isManualMode);
+}
+
+function normalizeResponse(data) {
+    // Basic status check if available
+    if (data.Status && data.Status === "FAILED") return { scheme: "unknown" };
+
+    return {
+        scheme: (data.Scheme || data.scheme || data.brand || data.network || "unknown").toLowerCase(),
+        type: (data.Type || data.type || data.card_type || "unknown").toLowerCase(),
+        bankName: (data.Issuer || data.bank?.name || data.issuer || data.bank || data.name || ""),
+        // Capturing Country code for validation
+        countryCode: (data.Country?.A2 || data.country?.alpha2 || data.country_code || "")
+    };
+}
+
+/* --- 5. THE CRITICAL MATCHING LOGIC --- */
+function processCardData(data, isManualMode) {
+    // LOGIC A: Debit Restriction
+    if (data.type === "debit") {
+        showError("⚠️ Debit Card", "Rewards logic only for Credit Cards.");
+        return;
     }
 
-    /* --- 5. THE CRITICAL MATCHING LOGIC --- */
-    function processCardData(data, isManualMode) {
-        if (data.type === "debit") {
-            showError("⚠️ Debit Card", "Rewards logic only for Credit Cards.");
-            return;
-        }
-
-        currentNetwork = data.scheme.toLowerCase();
-        currentMappedIssuer = "";
-        const apiName = data.bankName.toLowerCase().trim();
-        
-        // STAGE 1: Check the bankNameMap (e.g., "fairstone bank of canada" -> "walmart")
-        for (const [fullName, shortName] of Object.entries(bankNameMap)) {
-            if (apiName === fullName.toLowerCase() || apiName.includes(fullName.toLowerCase())) {
-                currentMappedIssuer = shortName;
-                break;
-            }
-        }
-
-        // STAGE 2: If no map match, check if apiName first word matches an issuer in cardDB
-        if (!currentMappedIssuer && apiName) {
-            const firstWord = apiName.split(' ')[0].replace(/[^a-z]/g, '');
-            if (cardDB.some(c => c.issuer === firstWord)) {
-                currentMappedIssuer = firstWord;
-            }
-        }
-
-        const bankDisp = currentMappedIssuer ? currentMappedIssuer.toUpperCase() + " " : "";
-        output.innerHTML = `
-            <div class="verified-box">
-                <div class="verified-text">✅ Identification Successful</div>
-                <div class="card-summary">${bankDisp}${currentNetwork.toUpperCase()} CREDIT</div>
-            </div>
-        `;
-
-        // If currentMappedIssuer is found, Step 2 is bypassed
-        renderSelection(currentNetwork, isManualMode || !currentMappedIssuer);
+    // LOGIC B: Geography Restriction (North America Only)
+    const cc = data.countryCode ? data.countryCode.toUpperCase() : "";
+    if (cc && cc !== "US" && cc !== "CA") {
+        showError("🌐 Region Not Supported", "We currently only support cards from the US and Canada.");
+        return;
     }
 
-    function renderSelection(network, showManualBank) {
-        selectionArea.style.display = "block";
-        
-        if (showManualBank) {
-            step2Group.style.display = "block";
-            manualTypeWrapper.style.display = "block";
-            document.getElementById("bank-selection-group").style.display = "block";
-            step2Label.textContent = "Step 2:"; 
-            cardLabel.textContent = "Step 3:";
-
-            bankSelect.innerHTML = '<option value="">-- Select Bank --</option>';
-            const matches = cardDB.filter(c => c.network.toLowerCase().includes(network));
-            [...new Set(matches.map(c => c.issuer))].sort().forEach(b => {
-                const opt = document.createElement("option"); opt.value = b; opt.textContent = b.toUpperCase(); bankSelect.appendChild(opt);
-            });
-            cardSelectionSub.style.display = "none";
-        } else {
-            // SUCCESS: Step 2 is skipped, Step 3 becomes Step 2
-            step2Group.style.display = "none";
-            cardLabel.textContent = "Step 2:"; 
-            cardSelectionSub.style.display = "block";
-            updateAvailableCategories(currentMappedIssuer);
-            filterAndPopulateCards();
+    currentNetwork = data.scheme.toLowerCase();
+    currentMappedIssuer = "";
+    const apiName = data.bankName.toLowerCase().trim();
+    
+    // STAGE 1: Check the bankNameMap
+    for (const [fullName, shortName] of Object.entries(bankNameMap)) {
+        if (apiName === fullName.toLowerCase() || apiName.includes(fullName.toLowerCase())) {
+            currentMappedIssuer = shortName;
+            break;
         }
     }
 
-    /* --- 6. FILTERING & UI HELPERS --- */
-    function updateAvailableCategories(bank) {
-        const available = cardDB.filter(c => 
-            c.network.toLowerCase().includes(currentNetwork) && c.issuer === bank
-        );
-        const existingCats = [...new Set(available.map(c => c.category))];
-        
-        Array.from(categorySelect.options).forEach(opt => {
-            if (opt.value === "" || opt.value === "all") opt.style.display = "block";
-            else opt.style.display = existingCats.includes(opt.value) ? "block" : "none";
+    // STAGE 2: If no map match, check first word
+    if (!currentMappedIssuer && apiName) {
+        const firstWord = apiName.split(' ')[0].replace(/[^a-z]/g, '');
+        if (cardDB.some(c => c.issuer === firstWord)) {
+            currentMappedIssuer = firstWord;
+        }
+    }
+
+    const bankDisp = currentMappedIssuer ? currentMappedIssuer.toUpperCase() + " " : "";
+    output.innerHTML = `
+        <div class="verified-box">
+            <div class="verified-text">✅ Identification Successful</div>
+            <div class="card-summary">${bankDisp}${currentNetwork.toUpperCase()} CREDIT</div>
+        </div>
+    `;
+
+    renderSelection(currentNetwork, isManualMode || !currentMappedIssuer);
+}
+
+function renderSelection(network, showManualBank) {
+    selectionArea.style.display = "block";
+    
+    if (showManualBank) {
+        step2Group.style.display = "block";
+        manualTypeWrapper.style.display = "block";
+        document.getElementById("bank-selection-group").style.display = "block";
+        step2Label.textContent = "Step 2:"; 
+        cardLabel.textContent = "Step 3:";
+
+        bankSelect.innerHTML = '<option value="">-- Select Bank --</option>';
+        const matches = cardDB.filter(c => c.network.toLowerCase().includes(network));
+        [...new Set(matches.map(c => c.issuer))].sort().forEach(b => {
+            const opt = document.createElement("option"); opt.value = b; opt.textContent = b.toUpperCase(); bankSelect.appendChild(opt);
+        });
+        cardSelectionSub.style.display = "none";
+    } else {
+        step2Group.style.display = "none";
+        cardLabel.textContent = "Step 2:"; 
+        cardSelectionSub.style.display = "block";
+        updateAvailableCategories(currentMappedIssuer);
+        filterAndPopulateCards();
+    }
+}
+
+/* --- 6. FILTERING & UI HELPERS --- */
+function updateAvailableCategories(bank) {
+    const available = cardDB.filter(c => 
+        c.network.toLowerCase().includes(currentNetwork) && c.issuer === bank
+    );
+    const existingCats = [...new Set(available.map(c => c.category))];
+    
+    Array.from(categorySelect.options).forEach(opt => {
+        if (opt.value === "" || opt.value === "all") opt.style.display = "block";
+        else opt.style.display = existingCats.includes(opt.value) ? "block" : "none";
+    });
+}
+
+function filterAndPopulateCards() {
+    const bank = currentMappedIssuer || bankSelect.value;
+    const cat = categorySelect.value;
+    if (!bank) return;
+
+    let filtered = cardDB.filter(c => 
+        c.network.toLowerCase().includes(currentNetwork) && c.issuer === bank
+    );
+    if (cat && cat !== "all") filtered = filtered.filter(c => c.category === cat);
+
+    cardSelect.innerHTML = '<option value="">-- Select Your Card --</option>';
+    if (filtered.length === 0) {
+        const opt = document.createElement("option");
+        opt.disabled = true; opt.textContent = "No cards found";
+        cardSelect.appendChild(opt);
+    } else {
+        filtered.forEach(c => {
+            const opt = document.createElement("option");
+            opt.value = c.name; opt.textContent = c.name;
+            cardSelect.appendChild(opt);
         });
     }
+}
 
-    function filterAndPopulateCards() {
-        const bank = currentMappedIssuer || bankSelect.value;
-        const cat = categorySelect.value;
-        if (!bank) return;
+/* --- 7. EVENT LISTENERS & RESETS --- */
+analyzeBtn.addEventListener("click", analyze);
+bankSelect.addEventListener("change", (e) => {
+    finalResults.innerHTML = "";
+    categorySelect.value = "";
+    if (!e.target.value) return;
+    updateAvailableCategories(e.target.value);
+    cardSelectionSub.style.display = "block";
+    filterAndPopulateCards();
+});
+categorySelect.addEventListener("change", () => { finalResults.innerHTML = ""; filterAndPopulateCards(); });
+cardSelect.addEventListener("change", (e) => {
+    const card = cardDB.find(c => c.name === e.target.value);
+    if (!card) { finalResults.innerHTML = ""; return; }
+    finalResults.innerHTML = `<div class="results-box"><h3 style="color:white; margin:0 0 10px 0;">${card.name}</h3><ul style="padding-left:20px; color:#cbd5e1; line-height:1.6;">${card.best.map(i => `<li>${i}</li>`).join("")}</ul></div>`;
+});
 
-        let filtered = cardDB.filter(c => 
-            c.network.toLowerCase().includes(currentNetwork) && c.issuer === bank
-        );
-        if (cat && cat !== "all") filtered = filtered.filter(c => c.category === cat);
+function resetUI() { output.innerHTML = ""; finalResults.innerHTML = ""; selectionArea.style.display = "none"; typeSelect.value = ""; categorySelect.value = ""; message.style.color = "#fbbf24"; }
 
-        cardSelect.innerHTML = '<option value="">-- Select Your Card --</option>';
-        if (filtered.length === 0) {
-            const opt = document.createElement("option");
-            opt.disabled = true; opt.textContent = "No cards found";
-            cardSelect.appendChild(opt);
-        } else {
-            filtered.forEach(c => {
-                const opt = document.createElement("option");
-                opt.value = c.name; opt.textContent = c.name;
-                cardSelect.appendChild(opt);
-            });
-        }
-    }
+function showError(t, d) { 
+    output.innerHTML = `<div class="verified-box" style="border-color:#ef4444;"><div class="verified-text" style="color:#ef4444;">${t}</div><div class="card-summary">${d}</div></div>`; 
+    selectionArea.style.display = "none"; 
+    message.textContent = ""; 
+}
 
-    /* --- 7. EVENT LISTENERS & RESETS --- */
-    analyzeBtn.addEventListener("click", analyze);
-    bankSelect.addEventListener("change", (e) => {
-        finalResults.innerHTML = "";
-        categorySelect.value = "";
-        if (!e.target.value) return;
-        updateAvailableCategories(e.target.value);
-        cardSelectionSub.style.display = "block";
-        filterAndPopulateCards();
-    });
-    categorySelect.addEventListener("change", () => { finalResults.innerHTML = ""; filterAndPopulateCards(); });
-    cardSelect.addEventListener("change", (e) => {
-        const card = cardDB.find(c => c.name === e.target.value);
-        if (!card) { finalResults.innerHTML = ""; return; }
-        finalResults.innerHTML = `<div class="results-box"><h3 style="color:white; margin:0 0 10px 0;">${card.name}</h3><ul style="padding-left:20px; color:#cbd5e1; line-height:1.6;">${card.best.map(i => `<li>${i}</li>`).join("")}</ul></div>`;
-    });
+function getLocalCardData(bin) {
+    const f = bin[0], f2 = parseInt(bin.substring(0,2)), f4 = parseInt(bin.substring(0,4));
+    let n = "unknown";
+    if (f === "4") n = "visa";
+    else if ((f2 >= 51 && f2 <= 55) || (f4 >= 2221 && f4 <= 2720)) n = "mastercard";
+    else if (f2 === 34 || f2 === 37) n = "amex";
+    return { scheme: n, type: "unknown", bankName: "", countryCode: "" };
+}
 
-    function resetUI() { output.innerHTML = ""; finalResults.innerHTML = ""; selectionArea.style.display = "none"; typeSelect.value = ""; categorySelect.value = ""; message.style.color = "#fbbf24"; }
-    function showError(t, d) { output.innerHTML = `<div class="verified-box" style="border-color:#ef4444;"><div class="verified-text" style="color:#ef4444;">${t}</div><div class="card-summary">${d}</div></div>`; selectionArea.style.display = "none"; message.textContent = ""; }
-    function getLocalCardData(bin) {
-        const f = bin[0], f2 = parseInt(bin.substring(0,2)), f4 = parseInt(bin.substring(0,4));
-        let n = "unknown";
-        if (f === "4") n = "visa";
-        else if ((f2 >= 51 && f2 <= 55) || (f4 >= 2221 && f4 <= 2720)) n = "mastercard";
-        else if (f2 === 34 || f2 === 37) n = "amex";
-        return { scheme: n, type: "unknown", bankName: "" };
-    }
-    binInput.addEventListener("input", (e) => {
-        let v = e.target.value.replace(/\D/g, "");
-        if (v.length > 8) v = v.slice(0, 8);
-        if (v.length > 4) v = v.slice(0, 4) + " " + v.slice(4, 8);
-        e.target.value = v;
-    });
-    binInput.addEventListener("keypress", (e) => { if (e.key === "Enter") analyze(); });
+binInput.addEventListener("input", (e) => {
+    let v = e.target.value.replace(/\D/g, "");
+    if (v.length > 8) v = v.slice(0, 8);
+    if (v.length > 4) v = v.slice(0, 4) + " " + v.slice(4, 8);
+    e.target.value = v;
+});
+binInput.addEventListener("keypress", (e) => { if (e.key === "Enter") analyze(); });
 });
