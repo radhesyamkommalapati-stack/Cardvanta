@@ -888,16 +888,36 @@ function renderSelection(network, showManualBank) {
     }
 }
 
-/* --- 6. FILTERING & UI HELPERS --- */
+/* --- 6. FILTERING & UI HELPERS (UNIFIED MOBILE & LAPTOP) --- */
+
+// 1. Capture original HTML categories only once when script loads
+const originalCategories = Array.from(document.getElementById("categorySelect").options).map(opt => ({
+    value: opt.value,
+    text: opt.textContent
+}));
+
 function updateAvailableCategories(bank) {
+    // Determine which categories exist for this specific bank/network
     const available = cardDB.filter(c => 
-        c.network.toLowerCase().includes(currentNetwork) && c.issuer === bank
+        c.network.toLowerCase().includes(currentNetwork.toLowerCase()) && 
+        c.issuer === bank
     );
     const existingCats = [...new Set(available.map(c => c.category))];
     
-    Array.from(categorySelect.options).forEach(opt => {
-        if (opt.value === "" || opt.value === "all") opt.style.display = "block";
-        else opt.style.display = existingCats.includes(opt.value) ? "block" : "none";
+    // Clear the dropdown completely (this forces Mobile/iPad to refresh the selection UI)
+    categorySelect.innerHTML = "";
+
+    // Physically re-add only the categories that match your logic
+    originalCategories.forEach(origOpt => {
+        const isDefault = origOpt.value === "" || origOpt.value === "all";
+        const hasCards = existingCats.includes(origOpt.value);
+
+        if (isDefault || hasCards) {
+            const newOpt = document.createElement("option");
+            newOpt.value = origOpt.value;
+            newOpt.textContent = origOpt.text;
+            categorySelect.appendChild(newOpt);
+        }
     });
 }
 
@@ -907,10 +927,12 @@ function filterAndPopulateCards() {
     if (!bank) return;
 
     let filtered = cardDB.filter(c => 
-        c.network.toLowerCase().includes(currentNetwork) && c.issuer === bank
+        c.network.toLowerCase().includes(currentNetwork.toLowerCase()) && 
+        c.issuer === bank
     );
     if (cat && cat !== "all") filtered = filtered.filter(c => c.category === cat);
 
+    // Rebuild card dropdown
     cardSelect.innerHTML = '<option value="">-- Select Your Card --</option>';
     if (filtered.length === 0) {
         const opt = document.createElement("option");
@@ -924,6 +946,7 @@ function filterAndPopulateCards() {
         });
     }
 }
+
 
 /* --- 7. EVENT LISTENERS & RESETS --- */
 analyzeBtn.addEventListener("click", analyze);
@@ -968,3 +991,4 @@ binInput.addEventListener("input", (e) => {
 });
 binInput.addEventListener("keypress", (e) => { if (e.key === "Enter") analyze(); });
 });
+
