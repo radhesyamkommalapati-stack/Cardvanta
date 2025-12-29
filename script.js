@@ -701,6 +701,7 @@ const finalResults = document.getElementById("final-results");
 const step2Label = document.getElementById("step2-label");
 const cardLabel = document.getElementById("card-label");
 
+let lastAnalyzedLength = 0;
 let currentNetwork = "";
 let currentMappedIssuer = "";
 
@@ -721,8 +722,9 @@ const BIN_APIS = (bin) => [
 /* --- 4. CORE ANALYZE FUNCTION --- */
 async function analyze() {
     const bin = binInput.value.replace(/\s/g, '').trim();
+	lastAnalyzedLength = bin.length;
     resetUI();
-
+	
     if (!/^\d{6,8}$/.test(bin)) {
         message.textContent = "Please enter 6-8 digits.";
         return;
@@ -888,57 +890,76 @@ function renderSelection(network, showManualBank) {
     }
 }
 
-/* --- 6. FILTERING & UI HELPERS (UNIFIED MOBILE & LAPTOP) --- */
+/* --- 6. FILTERING & UI HELPERS (FIXED FOR BUG 1) --- */
 
-// 1. Capture original HTML categories only once when script loads
 const originalCategories = Array.from(document.getElementById("categorySelect").options).map(opt => ({
     value: opt.value,
     text: opt.textContent
 }));
 
 function updateAvailableCategories(bank) {
-    // Determine which categories exist for this specific bank/network
     const available = cardDB.filter(c => 
         c.network.toLowerCase().includes(currentNetwork.toLowerCase()) && 
         c.issuer === bank
     );
     const existingCats = [...new Set(available.map(c => c.category))];
     
-    // Clear the dropdown completely (this forces Mobile/iPad to refresh the selection UI)
     categorySelect.innerHTML = "";
 
-    // Physically re-add only the categories that match your logic
-    originalCategories.forEach(origOpt => {
-        const isDefault = origOpt.value === "" || origOpt.value === "all";
-        const hasCards = existingCats.includes(origOpt.value);
+    // Add a forced prompt
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Select";
+    categorySelect.appendChild(placeholder);
 
-        if (isDefault || hasCards) {
+    originalCategories.forEach(origOpt => {
+        if (origOpt.value === "" || origOpt.value === "all") return;
+        if (existingCats.includes(origOpt.value)) {
             const newOpt = document.createElement("option");
             newOpt.value = origOpt.value;
             newOpt.textContent = origOpt.text;
             categorySelect.appendChild(newOpt);
         }
     });
+
+    // LOCK the card selection initially
+    categorySelect.value = ""; 
+    cardSelect.innerHTML = '<option value="">-- Select Category First --</option>';
+    cardSelect.disabled = true; 
 }
 
 function filterAndPopulateCards() {
     const bank = currentMappedIssuer || bankSelect.value;
     const cat = categorySelect.value;
+    
     if (!bank) return;
+
+    // FIX: If no category is chosen, keep the card dropdown locked
+    if (!cat) {
+        cardSelect.innerHTML = '<option value="">-- Select Your Card --	</option>';
+        cardSelect.disabled = true;
+        return;
+    }
 
     let filtered = cardDB.filter(c => 
         c.network.toLowerCase().includes(currentNetwork.toLowerCase()) && 
         c.issuer === bank
     );
-    if (cat && cat !== "all") filtered = filtered.filter(c => c.category === cat);
+    
+    if (cat !== "all") {
+        filtered = filtered.filter(c => c.category === cat);
+    }
 
-    // Rebuild card dropdown
     cardSelect.innerHTML = '<option value="">-- Select Your Card --</option>';
+    
     if (filtered.length === 0) {
         const opt = document.createElement("option");
         opt.disabled = true; opt.textContent = "No cards found";
         cardSelect.appendChild(opt);
+        cardSelect.disabled = true;
     } else {
+        // UNLOCK only now that a category is selected and cards exist
+        cardSelect.disabled = false;
         filtered.forEach(c => {
             const opt = document.createElement("option");
             opt.value = c.name; opt.textContent = c.name;
@@ -947,18 +968,21 @@ function filterAndPopulateCards() {
     }
 }
 
-
 /* --- 7. EVENT LISTENERS & RESETS --- */
 analyzeBtn.addEventListener("click", analyze);
 bankSelect.addEventListener("change", (e) => {
     finalResults.innerHTML = "";
-    categorySelect.value = "";
     if (!e.target.value) return;
     updateAvailableCategories(e.target.value);
     cardSelectionSub.style.display = "block";
-    filterAndPopulateCards();
+    // We don't call filterAndPopulateCards yet because category isn't chosen
 });
-categorySelect.addEventListener("change", () => { finalResults.innerHTML = ""; filterAndPopulateCards(); });
+
+categorySelect.addEventListener("change", () => { 
+    finalResults.innerHTML = ""; 
+    filterAndPopulateCards(); 
+});
+
 cardSelect.addEventListener("change", (e) => {
     const card = cardDB.find(c => c.name === e.target.value);
     if (!card) { finalResults.innerHTML = ""; return; }
@@ -984,11 +1008,21 @@ function getLocalCardData(bin) {
 }
 
 binInput.addEventListener("input", (e) => {
+    // 1. Clean the input
     let v = e.target.value.replace(/\D/g, "");
+    
+    // 2. FIX FOR BUG 2: Reset if the number is incomplete 
+    // This triggers as soon as they delete a single digit from a 6 or 8 digit BIN.
+if (v.length < lastAnalyzedLength || v.length < 6) {
+        resetUI();
+        message.textContent = "";
+        // If they keep deleting until it's empty, reset the tracker
+        if (v.length === 0) lastAnalyzedLength = 0;
+    }
+
     if (v.length > 8) v = v.slice(0, 8);
     if (v.length > 4) v = v.slice(0, 4) + " " + v.slice(4, 8);
     e.target.value = v;
 });
 binInput.addEventListener("keypress", (e) => { if (e.key === "Enter") analyze(); });
 });
-
