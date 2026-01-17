@@ -832,16 +832,9 @@ function processCardData(data, isManualMode) {
         // CASE A: Supported Bank
         currentMappedIssuer = dbMatch.issuer;
         output.innerHTML = `
-            <div class="verified-box" style="border-left: 4px solid #22c55e; padding: 15px;">
-                <div style="font-family: 'Inter', sans-serif; font-weight: 800; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; font-size: 0.75rem; margin-bottom: 12px;">
-                    ✓ Card Identified																																																 
-                </div>
-                <div style="display: grid; grid-template-columns: 90px 1fr; gap: 8px; font-family: 'Segoe UI', Tahoma, sans-serif;">
-                    <span style="color: #64748b; font-size: 0.8rem; font-weight: 500;">BANK</span>
-                    <span style="color: #ffffff; font-size: 0.9rem; font-weight: 700;">${currentMappedIssuer}</span>
-                    <span style="color: #64748b; font-size: 0.8rem; font-weight: 500;">NETWORK</span>
-                    <span style="color: #ffffff; font-size: 0.9rem; font-weight: 700;">${currentNetwork.toUpperCase()}</span>
-                </div>
+            <div class="verified-box">
+			    <div class="verified-text">✅ Identification Successful</div>
+				<div class="card-summary">${currentMappedIssuer} ${currentNetwork.toUpperCase()}</div>
             </div>
         `;
         renderSelection(currentNetwork, isManualMode);
@@ -1050,4 +1043,5 @@ binInput.addEventListener("input", (e) => {
 
 binInput.addEventListener("keypress", (e) => { if (e.key === "Enter") analyze(); });
 });
+
 
