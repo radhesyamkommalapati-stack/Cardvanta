@@ -796,11 +796,13 @@ function normalizeResponse(data) {
 
 /* --- 5. MATCHING LOGIC --- */
 function processCardData(data, isManualMode) {
+    // 1. Handle Debit Cards
     if (data.type === "debit") {
         showError("⚠️ Debit Card", "Rewards logic only for Credit Cards.");
         return;
     }
 
+    // 2. Handle Region Support
     const cc = data.countryCode ? data.countryCode.toUpperCase() : "";
     if (cc && cc !== "US" && cc !== "CA") {
         showError("🌐 Region Not Supported", "We currently only support cards from the US and Canada.");
@@ -827,18 +829,46 @@ function processCardData(data, isManualMode) {
     const dbMatch = cardDB.find(c => c.issuer.toUpperCase() === currentMappedIssuer.toUpperCase());
     
     if (dbMatch) {
+        // CASE A: Supported Bank
         currentMappedIssuer = dbMatch.issuer;
         output.innerHTML = `
-            <div class="verified-box">
-                <div class="verified-text">✅ Identification Successful</div>
-                <div class="card-summary">${currentMappedIssuer} ${currentNetwork.toUpperCase()}</div>
+            <div class="verified-box" style="border-left: 4px solid #22c55e; padding: 15px;">
+                <div style="font-family: 'Inter', sans-serif; font-weight: 800; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; font-size: 0.75rem; margin-bottom: 12px;">
+                    ✓ Card Identified																																																 
+                </div>
+                <div style="display: grid; grid-template-columns: 90px 1fr; gap: 8px; font-family: 'Segoe UI', Tahoma, sans-serif;">
+                    <span style="color: #64748b; font-size: 0.8rem; font-weight: 500;">BANK</span>
+                    <span style="color: #ffffff; font-size: 0.9rem; font-weight: 700;">${currentMappedIssuer}</span>
+                    <span style="color: #64748b; font-size: 0.8rem; font-weight: 500;">NETWORK</span>
+                    <span style="color: #ffffff; font-size: 0.9rem; font-weight: 700;">${currentNetwork.toUpperCase()}</span>
+                </div>
             </div>
         `;
         renderSelection(currentNetwork, isManualMode);
+
+    } else if (data.bankName && data.bankName.trim() !== "") {
+        // CASE B: Unsupported Bank (The Styled 454444 Case)
+        output.innerHTML = `
+              <div class="verified-box" style="border-color: #94a3b8; background: rgba(148, 163, 184, 0.05);">
+                <div style="font-weight: bold; color: #94a3b8; margin-bottom: 10px;">⚠️ Rewards Unavailable</div>
+                <div style="display: grid; grid-template-columns: 80px 1fr; gap: 6px; font-size: 0.85em; color: #94a3b8; margin-bottom: 12px;">																											
+                    <span>Issuer:</span><span style="color: #f1f5f9;">${data.bankName.toUpperCase()}</span>																										   
+                    <span>Type:</span><span style="color: #f1f5f9;">${data.type.toUpperCase()}</span>																											
+                    <span>Region:</span><span style="color: #f1f5f9;">${cc === "CA" ? "🇨🇦 CANADA" : "🇺🇸 USA"}</span>
+                </div>
+                <div style="font-size: 0.8em; color: #64748b; font-style: italic; border-top: 1px solid rgba(148, 163, 184, 0.2); padding-top: 8px;">
+                    We successfully identified your card, but we currently do not support rewards data for your bank.
+                </div>
+            </div>
+        `;
+        selectionArea.style.display = "none";
+
     } else {
+        // CASE C: Manual Mode
         renderSelection(currentNetwork, true);
     }
 }
+
 
 function renderSelection(network, showManualBank) {
     selectionArea.style.display = "block";
@@ -1020,3 +1050,4 @@ binInput.addEventListener("input", (e) => {
 
 binInput.addEventListener("keypress", (e) => { if (e.key === "Enter") analyze(); });
 });
+
