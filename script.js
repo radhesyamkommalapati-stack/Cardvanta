@@ -684,7 +684,7 @@ const bankNameMap = {
 	"Amazon": "Amazon"
     };
 	
-	/* --- 2. SELECTORS --- */
+/* --- 2. SELECTORS --- */
 const binInput = document.getElementById("binInput");
 const analyzeBtn = document.getElementById("analyzeBtn");
 const message = document.getElementById("message");
@@ -709,20 +709,17 @@ let currentMappedIssuer = "";
 const BIN_APIS = (bin) => [
     { name: "BinSearchLookup", url: `https://binsearchlookup.com/api/v1/${bin}`, proxy: true },
     { name: "HandyAPI", url: `https://data.handyapi.com/bin/${bin}`, proxy: true },
-    { name: "BinsAPI", url: `https://binsapi.vercel.app/api/bin?bin=${bin}`, proxy: false },
+    { name: "BinsAPI", url: `https://binsapi.vercel.app/api/bin?bin=${bin}`, proxy: true },
     { name: "Binlist", url: `https://lookup.binlist.net/${bin}`, proxy: true },
     { name: "Moocher.io", url: `https://moocher.io/api/bin/${bin}`, proxy: true },
     { name: "PulsePST", url: `https://pulse.pst.net/api/bin/${bin}`, proxy: true },
-    { name: "BinCheck", url: `https://api.bincheck.io/bin/${bin}`, proxy: true },
-    { name: "APILayer", url: `https://api.apilayer.com/bincheck/${bin}`, headers: { "apikey": "YOUR_KEY" }, proxy: false },
-    { name: "Bincodes", url: `https://api.bincodes.com/bin/json/YOUR_KEY/${bin}/`, proxy: true },
-    { name: "Neutrino", url: `https://neutrinoapi.net/bin-lookup?bin-number=${bin}`, headers: { "User-ID": "YOUR_ID", "API-Key": "YOUR_KEY" }, proxy: false }
+    { name: "BinCheck", url: `https://api.bincheck.io/bin/${bin}`, proxy: true }
 ];
 
 /* --- 4. CORE ANALYZE FUNCTION --- */
 async function analyze() {
     const bin = binInput.value.replace(/\s/g, '').trim();
-	lastAnalyzedLength = bin.length;
+    lastAnalyzedLength = bin.length;
     resetUI();
 	
     if (!/^\d{6,8}$/.test(bin)) {
@@ -742,38 +739,32 @@ async function analyze() {
     message.style.color = "#fbbf24";
     message.innerHTML = `⏳ Identifying card...`;
 
-    console.group(`🔍 BIN Analysis: ${bin}`);
     const endpoints = BIN_APIS(bin);
-
+    
+    // THE SEARCH LOOP: Continues until a Bank Name is found
     for (let i = 0; i < endpoints.length; i++) {
         const service = endpoints[i];
-        const startTime = performance.now();
         try {
             const cb = `&t=${Date.now()}`;
             const finalUrl = service.url.includes('?') ? service.url + '&cb=' + Date.now() : service.url + '?' + cb.substring(1);
             const fetchUrl = service.proxy ? `https://corsproxy.io/?${encodeURIComponent(finalUrl)}` : finalUrl;
             
             const res = await fetch(fetchUrl, { headers: service.headers || {} });
-            const duration = ((performance.now() - startTime) / 1000).toFixed(2);
-
             if (res.ok) {
                 const raw = await res.json();
                 const normalized = normalizeResponse(raw);
-                if (normalized.scheme && normalized.scheme !== "unknown") {
-                    console.log(`%c✅ #${i+1} ${service.name} SUCCESS (${duration}s)`, "color: #22c55e; font-weight: bold;");
+                
+                // CRITICAL FIX: Only stop if we have a real Bank Name
+                if (normalized.bankName && normalized.bankName.trim() !== "") {
                     validData = normalized;
-                    break;
+                    break; // STOP searching, we found the issuer!
                 }
-            } else {
-                console.log(`%c❌ #${i+1} ${service.name} (Status ${res.status})`, "color: #94a3b8;");
             }
-        } catch (e) {
-            console.log(`%c❌ #${i+1} ${service.name} (Error)`, "color: #ef4444;");
-        }
+        } catch (e) { continue; }
     }
-    console.groupEnd();
 
-    if (!validData) {
+    // If all APIs finished and no bank was found
+    if (!validData || !validData.bankName) {
         validData = localCheck;
         isManualMode = true;
         message.textContent = ""; 
@@ -786,43 +777,42 @@ async function analyze() {
 }
 
 function normalizeResponse(data) {
-    // Basic status check if available
-    if (data.Status && data.Status === "FAILED") return { scheme: "unknown" };
+    // If the API error message contains "limit" or "failed", treat bank as empty
+    if (data.Status && (data.Status.toUpperCase().includes("LIMIT") || data.Status.toUpperCase().includes("FAILED"))) {
+        return { scheme: "unknown", bankName: "" };
+    }
+    
+    let rawIssuer = (data.Issuer || data.bank?.name || data.issuer || data.bank || data.name || "");
+    // Force "UNKNOWN" string to empty so the loop keeps searching
+    let cleanIssuer = (rawIssuer && rawIssuer.toUpperCase() === "UNKNOWN") ? "" : rawIssuer;
 
     return {
         scheme: (data.Scheme || data.scheme || data.brand || data.network || "unknown").toLowerCase(),
         type: (data.Type || data.type || data.card_type || "unknown").toLowerCase(),
-        bankName: (data.Issuer || data.bank?.name || data.issuer || data.bank || data.name || ""),
-        // Capturing Country code for validation
+        bankName: cleanIssuer,
         countryCode: (data.Country?.A2 || data.country?.alpha2 || data.country_code || "")
     };
 }
-	
-/* --- 5. THE CRITICAL MATCHING LOGIC --- */
+
+/* --- 5. MATCHING LOGIC --- */
 function processCardData(data, isManualMode) {
-    // LOGIC A: Debit Restriction
     if (data.type === "debit") {
         showError("⚠️ Debit Card", "Rewards logic only for Credit Cards.");
         return;
     }
 
-    // LOGIC B: Geography Restriction (North America Only)
     const cc = data.countryCode ? data.countryCode.toUpperCase() : "";
     if (cc && cc !== "US" && cc !== "CA") {
         showError("🌐 Region Not Supported", "We currently only support cards from the US and Canada.");
         return;
     }
 
-    //const cc = (data.countryCode || "").toUpperCase().trim();
-    
-    // 1. Standardize Network
     let apiNet = (data.scheme || "").toLowerCase().trim();
     currentNetwork = (apiNet === "amex" || apiNet === "american express") ? "american express" : apiNet;
     
     currentMappedIssuer = "";
     const apiBank = (data.bankName || "").toLowerCase().trim();
     
-    // STAGE 1: Map the Bank Name
     for (const [fullName, shortName] of Object.entries(bankNameMap)) {
         if (apiBank === fullName.toLowerCase() || apiBank.includes(fullName.toLowerCase())) {
             currentMappedIssuer = shortName; 
@@ -830,28 +820,14 @@ function processCardData(data, isManualMode) {
         }
     }
 
-    // STAGE 2: Amex & Cross-Border Logic
-    const crossBorderBanks = ["BMO", "TD", "RBC", "CIBC", "AMEX"];
-
     if (!currentMappedIssuer && currentNetwork === "american express") {
         currentMappedIssuer = "AMEX";
     }
 
-    // Apply US filter only if not already present
-    if (cc === "US" && currentMappedIssuer) {
-        let base = currentMappedIssuer.replace(" US", "").trim().toUpperCase();
-        if (crossBorderBanks.includes(base)) {
-            currentMappedIssuer = base + " US";
-        }
-    }
-
-    // STAGE 3: Final Sync with cardDB Casing
-    // This is the most important part to fix your "No cards found" error
     const dbMatch = cardDB.find(c => c.issuer.toUpperCase() === currentMappedIssuer.toUpperCase());
     
     if (dbMatch) {
-        currentMappedIssuer = dbMatch.issuer; // Sets it to the EXACT string in your DB (e.g., "AMEX US")
-        
+        currentMappedIssuer = dbMatch.issuer;
         output.innerHTML = `
             <div class="verified-box">
                 <div class="verified-text">✅ Identification Successful</div>
@@ -860,7 +836,6 @@ function processCardData(data, isManualMode) {
         `;
         renderSelection(currentNetwork, isManualMode);
     } else {
-        // Fallback to manual selection if no direct match in DB
         renderSelection(currentNetwork, true);
     }
 }
@@ -871,15 +846,25 @@ function renderSelection(network, showManualBank) {
     if (showManualBank) {
         step2Group.style.display = "block";
         manualTypeWrapper.style.display = "block";
-        document.getElementById("bank-selection-group").style.display = "block";
+        
+        // DISABLE Bank Selection until Step 2 Choice is made
+        bankSelect.disabled = true;
+
         step2Label.textContent = "Step 2:"; 
         cardLabel.textContent = "Step 3:";
 
         bankSelect.innerHTML = '<option value="">-- Select Bank --</option>';
         const matches = cardDB.filter(c => c.network.toLowerCase().includes(network));
+        
         [...new Set(matches.map(c => c.issuer))].sort().forEach(b => {
             const opt = document.createElement("option"); opt.value = b; opt.textContent = b.toUpperCase(); bankSelect.appendChild(opt);
         });
+
+        const otherOpt = document.createElement("option");
+        otherOpt.value = "OTHER";
+        otherOpt.textContent = "BANK NOT LISTED";
+        bankSelect.appendChild(otherOpt);
+
         cardSelectionSub.style.display = "none";
     } else {
         step2Group.style.display = "none";
@@ -890,8 +875,7 @@ function renderSelection(network, showManualBank) {
     }
 }
 
-/* --- 6. FILTERING & UI HELPERS (FIXED FOR BUG 1) --- */
-
+/* --- 6. FILTERING & UI HELPERS --- */
 const originalCategories = Array.from(document.getElementById("categorySelect").options).map(opt => ({
     value: opt.value,
     text: opt.textContent
@@ -905,77 +889,84 @@ function updateAvailableCategories(bank) {
     const existingCats = [...new Set(available.map(c => c.category))];
     
     categorySelect.innerHTML = "";
-
-    // Add a forced prompt
     const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "Select";
+    placeholder.value = ""; placeholder.textContent = "Select";
     categorySelect.appendChild(placeholder);
 
     originalCategories.forEach(origOpt => {
         if (origOpt.value === "" || origOpt.value === "all") return;
         if (existingCats.includes(origOpt.value)) {
             const newOpt = document.createElement("option");
-            newOpt.value = origOpt.value;
-            newOpt.textContent = origOpt.text;
+            newOpt.value = origOpt.value; newOpt.textContent = origOpt.text;
             categorySelect.appendChild(newOpt);
         }
     });
 
-    // LOCK the card selection initially
     categorySelect.value = ""; 
-    cardSelect.innerHTML = '<option value="">-- Select Category First --</option>';
-    cardSelect.disabled = true; 
+    cardSelect.innerHTML = '<option value="">-- Select Your Card --</option>';
 }
 
 function filterAndPopulateCards() {
     const bank = currentMappedIssuer || bankSelect.value;
     const cat = categorySelect.value;
-    
     if (!bank) return;
-
-    // FIX: If no category is chosen, keep the card dropdown locked
-    if (!cat) {
-        cardSelect.innerHTML = '<option value="">-- Select Your Card --	</option>';
-        cardSelect.disabled = true;
-        return;
-    }
 
     let filtered = cardDB.filter(c => 
         c.network.toLowerCase().includes(currentNetwork.toLowerCase()) && 
         c.issuer === bank
     );
     
-    if (cat !== "all") {
+    if (cat && cat !== "all") {
         filtered = filtered.filter(c => c.category === cat);
     }
 
     cardSelect.innerHTML = '<option value="">-- Select Your Card --</option>';
-    
-    if (filtered.length === 0) {
+    filtered.forEach(c => {
         const opt = document.createElement("option");
-        opt.disabled = true; opt.textContent = "No cards found";
+        opt.value = c.name; opt.textContent = c.name;
         cardSelect.appendChild(opt);
-        cardSelect.disabled = true;
-    } else {
-        // UNLOCK only now that a category is selected and cards exist
-        cardSelect.disabled = false;
-        filtered.forEach(c => {
-            const opt = document.createElement("option");
-            opt.value = c.name; opt.textContent = c.name;
-            cardSelect.appendChild(opt);
-        });
-    }
+    });
 }
 
-/* --- 7. EVENT LISTENERS & RESETS --- */
+/* --- 7. EVENT LISTENERS --- */
 analyzeBtn.addEventListener("click", analyze);
+
+typeSelect.addEventListener("change", (e) => {
+    finalResults.innerHTML = "";
+    
+    if (e.target.value === "credit") {
+        bankSelect.disabled = false; // ENABLE IT
+        finalResults.innerHTML = "";
+    } else {
+        bankSelect.disabled = true; // KEEP IT DISABLED
+        cardSelectionSub.style.display = "none";
+
+        if (e.target.value === "debit") {
+            finalResults.innerHTML = `
+                <div class="verified-box" style="border-color: #ef4444;">
+                    <div class="verified-text" style="color: #ef4444;">⚠️ Debit Card</div>
+                    <div class="card-summary">Rewards logic only for Credit Cards.</div>
+                </div>`;
+        }
+    }
+});
+
 bankSelect.addEventListener("change", (e) => {
     finalResults.innerHTML = "";
     if (!e.target.value) return;
+
+    if (e.target.value === "OTHER") {
+        cardSelectionSub.style.display = "none";
+        finalResults.innerHTML = `
+            <div class="verified-box" style="border-color: #94a3b8;">
+                <div class="verified-text" style="color: #94a3b8;">⚠️ Bank Not Supported</div>
+                <div class="card-summary">Sorry, we currently do not support rewards data for your bank.</div>
+            </div>`;
+        return;
+    }
+
     updateAvailableCategories(e.target.value);
     cardSelectionSub.style.display = "block";
-    // We don't call filterAndPopulateCards yet because category isn't chosen
 });
 
 categorySelect.addEventListener("change", () => { 
@@ -989,7 +980,15 @@ cardSelect.addEventListener("change", (e) => {
     finalResults.innerHTML = `<div class="results-box"><h3 style="color:white; margin:0 0 10px 0;">${card.name}</h3><ul style="padding-left:20px; color:#cbd5e1; line-height:1.6;">${card.best.map(i => `<li>${i}</li>`).join("")}</ul></div>`;
 });
 
-function resetUI() { output.innerHTML = ""; finalResults.innerHTML = ""; selectionArea.style.display = "none"; typeSelect.value = ""; categorySelect.value = ""; message.style.color = "#fbbf24"; }
+function resetUI() { 
+    output.innerHTML = ""; 
+    finalResults.innerHTML = ""; 
+    selectionArea.style.display = "none"; 
+    typeSelect.value = ""; 
+    categorySelect.value = ""; 
+    bankSelect.disabled = true; 
+    message.style.color = "#fbbf24"; 
+}
 
 function showError(t, d) { 
     output.innerHTML = `<div class="verified-box" style="border-color:#ef4444;"><div class="verified-text" style="color:#ef4444;">${t}</div><div class="card-summary">${d}</div></div>`; 
@@ -1008,21 +1007,16 @@ function getLocalCardData(bin) {
 }
 
 binInput.addEventListener("input", (e) => {
-    // 1. Clean the input
     let v = e.target.value.replace(/\D/g, "");
-    
-    // 2. FIX FOR BUG 2: Reset if the number is incomplete 
-    // This triggers as soon as they delete a single digit from a 6 or 8 digit BIN.
-if (v.length < lastAnalyzedLength || v.length < 6) {
+    if (v.length < lastAnalyzedLength || v.length < 6) {
         resetUI();
         message.textContent = "";
-        // If they keep deleting until it's empty, reset the tracker
         if (v.length === 0) lastAnalyzedLength = 0;
     }
-
     if (v.length > 8) v = v.slice(0, 8);
     if (v.length > 4) v = v.slice(0, 4) + " " + v.slice(4, 8);
     e.target.value = v;
 });
+
 binInput.addEventListener("keypress", (e) => { if (e.key === "Enter") analyze(); });
 });
